@@ -12,6 +12,8 @@ ESP32PcSession server;
 void setup() {
   // Use SD CS GPIO 5. The library initializes the ESP32StorageLibrary backends
   // and reports READY only when SD and LittleFS are available.
+  // Keep the existing two-argument call, or pass a shared bus as argument 3:
+  // server.beginServer(5, 115200, Screen.getSPIinstance());
   if (!server.beginServer(5, 115200)) {
     Serial.println("File server is in recovery mode; check the SD card and LittleFS.");
   }

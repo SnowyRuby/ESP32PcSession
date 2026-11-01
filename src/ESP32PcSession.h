@@ -13,7 +13,8 @@ class ESP32PcSession {
 public:
   // Starts the serial file server and initializes the existing storage manager.
   // The sketch's setup() can call beginServer(); loop() should call poll().
-  bool beginServer(uint8_t sdCsPin = 5, uint32_t baud = 115200);
+  bool beginServer(uint8_t sdCsPin = 5, uint32_t baud = 115200,
+                   SPIClass *sdSPI = nullptr);
   void poll();
 
   // Ask the PC app to end its SD file session while keeping the COM port open.

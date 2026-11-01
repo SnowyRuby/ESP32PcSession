@@ -69,10 +69,10 @@ void handle(JsonDocument&q){
 }
 } // namespace
 
-bool ESP32PcSession::beginServer(uint8_t sdCsPin,uint32_t baud){
+bool ESP32PcSession::beginServer(uint8_t sdCsPin,uint32_t baud,SPIClass *sdSPI){
   serverInstance=this;
   Serial.begin(baud);delay(300);
-  bool mounted=StorageLibrary.beginStorage(sdCsPin,18,19,23,4000000,false);
+  bool mounted=StorageLibrary.beginStorage(sdCsPin,18,19,23,4000000,false,sdSPI);
   mode=(mounted&&StorageLibrary.isSDReady()&&StorageLibrary.isLittleFSReady()&&StorageLibrary.syncBackup())?READY:RECOVERY;
   StaticJsonDocument<128>g;g["v"]=1;g["type"]="BOOT";g["state"]=mode==READY?"READY":"RECOVERY";serializeJson(g,Serial);Serial.write('\n');
   return mode==READY;
