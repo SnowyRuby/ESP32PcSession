@@ -26,6 +26,7 @@ fs::FS &sdCard(){return StorageLibrary.SD.filesystem();}
 bool makeParents(const String&p){int at=1;while((at=p.indexOf('/',at))>0){String d=p.substring(0,at);if(d!="/"&&!sdCard().exists(d))sdCard().mkdir(d);at++;}return true;}
 
 void sendResponse(uint32_t id,const String&type,JsonDocument&d){d["v"]=1;d["id"]=id;d["type"]=type;serializeJson(d,Serial);Serial.write('\n');}
+void sendNotification(const char *type){StaticJsonDocument<96>d;d["v"]=1;d["type"]=type;serializeJson(d,Serial);Serial.write('\n');}
 void reply(uint32_t id,const String&request,bool ok,JsonDocument*body=nullptr,const String&message=""){
   StaticJsonDocument<128> local;JsonDocument&d=body?*body:static_cast<JsonDocument&>(local);String type=request+(ok?"_OK":"_ERR");if(!ok)d["message"]=message;sendResponse(id,type,d);
 }
@@ -105,3 +106,6 @@ bool ESP32PcSession::end(){
 
 bool ESP32PcSession::writeRecord(const String&record){if(!StorageLibrary.writeWithFallback(record)){_lastError=StorageLibrary.lastError();return false;}_lastError="";return true;}
 bool ESP32PcSession::sync(){if(_active){_lastError="Cannot sync while the PC owns the SD card.";return false;}bool ok=StorageLibrary.syncBackup();_needsRecovery=!ok;_lastError=ok?"":StorageLibrary.lastError();return ok;}
+
+void ESP32PcSession::notifySensorDataPending(){if(serverInstance!=this||!_active||_sensorDataNotificationPending)return;sendNotification("SENSOR_DATA_PENDING");_sensorDataNotificationPending=true;}
+void ESP32PcSession::notifySensorDataSaved(){if(serverInstance!=this||!_sensorDataNotificationPending)return;sendNotification("SENSOR_DATA_SAVED");_sensorDataNotificationPending=false;}

@@ -17,6 +17,11 @@ void setup() {
   }
 }
 
+// In your sensor/storage task, call server.notifySensorDataPending()
+// when readings need SD access. After the CSV write completes, call
+// server.notifySensorDataSaved(); the PC app ends/resumes its file session
+// while keeping this COM connection open.
+
 void loop() {
   // Reads serial requests and services browse/upload/download commands.
   // During a PC session, route application records through

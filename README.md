@@ -27,6 +27,11 @@ void loop() {
 
 The library handles the serial protocol, browsing, uploads, downloads, transfer CRC checks, and session begin/end. SD remains mounted so the firmware can perform the PC's file requests. While the PC owns the transfer session, send new ESP32 records through `StorageLibrary.writeWithFallback(record)` or `server.writeRecord(record)`; the StorageLibrary host-session gate queues them in LittleFS until the session ends. Avoid direct application writes to SD during a PC session.
 
+## Sensor-save pause and resume
+
+The library exposes `notifySensorDataPending()` and `notifySensorDataSaved()` for applications that must pause PC access before writing sensor data to SD. Call `notifySensorDataPending()` when the sketch has sensor records waiting to be committed. The companion app receives `SENSOR_DATA_PENDING`, ends the SD file session, and keeps the COM port open. After the application confirms that the waiting records are saved, call `notifySensorDataSaved()`. The app receives `SENSOR_DATA_SAVED` and begins a new file session automatically.
+
+These methods only send protocol notifications. The sketch remains responsible for detecting pending sensor data, coordinating its storage task, and calling the saved notification only after the write is complete. The methods do nothing unless a PC session is active and a pending notification has been sent.
 ## Hardware and wiring
 
 The library is for the classic ESP32 Dev Module / ESP32-WROOM. For the default SPI wiring, connect microSD SCK to GPIO18, MISO to GPIO19, MOSI to GPIO23, and CS to GPIO5. The SD card should be FAT32. Change the CS pin in `beginServer()` if your wiring differs.

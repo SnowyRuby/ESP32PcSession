@@ -7,15 +7,19 @@
 #include <mbedtls/base64.h>
 #include <ESP32StorageLibrary.h>
 
-// Session coordinator for a USB-to-UART file server. The PC receives exclusive
-// SD access while the ESP32's existing StorageLibrary queues app records in
-// LittleFS. This library does not implement the serial wire protocol itself.
+// Runs the USB-to-UART file protocol and coordinates PC access to SD.
+// The application sketch calls the sensor notification methods when needed.
 class ESP32PcSession {
 public:
   // Starts the serial file server and initializes the existing storage manager.
   // The sketch's setup() can call beginServer(); loop() should call poll().
   bool beginServer(uint8_t sdCsPin = 5, uint32_t baud = 115200);
   void poll();
+
+  // Ask the PC app to end its SD file session while keeping the COM port open.
+  // Call notifySensorDataSaved() after the queued sensor records reach storage.
+  void notifySensorDataPending();
+  void notifySensorDataSaved();
 
   // Call after StorageLibrary.beginStorage(). This drains old queue data, then
   // pauses StorageLibrary's automatic record writes and queue replay. SD stays
@@ -40,5 +44,6 @@ public:
 private:
   bool _active = false;
   bool _needsRecovery = false;
+  bool _sensorDataNotificationPending = false;
   String _lastError;
 };
