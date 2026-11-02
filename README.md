@@ -4,7 +4,7 @@ An Arduino library that runs the ESP32 side of the serial SD-card file manager. 
 
 ## Dependency
 
-Install the separate **ESP32StorageLibrary** first. ESP32PcSession calls its `StorageLibrary.beginStorage()`, `beginHostSession()`, `writeWithFallback()`, and `endHostSession()` APIs. It also requires ArduinoJson 7 and the ESP32 Arduino core 3.x.
+Install the separate [**ESP32StorageLibrary**](https://github.com/SnowyRuby/ESP32StorageLibrary) first. ESP32PcSession calls its `StorageLibrary.beginStorage()`, `beginHostSession()`, `writeWithFallback()`, and `endHostSession()` APIs. It also requires ArduinoJson 7 and the ESP32 Arduino core 3.x.
 
 ## Example
 
