@@ -10,6 +10,10 @@
 ESP32PcSession server;
 
 void setup() {
+  // Optional: set a friendly name shown in the PC app's device dropdown.
+  // Leave this unset to show the COM port name instead.
+  // server.setDeviceName("Workshop ESP32");
+
   // Use SD CS GPIO 5. The library initializes the ESP32StorageLibrary backends
   // and reports READY only when SD and LittleFS are available.
   // Keep the existing two-argument call, or pass a shared bus as argument 3:

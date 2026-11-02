@@ -10,10 +10,58 @@ uint64_t uploadSize = 0, uploadReceived = 0;
 uint32_t uploadExpectedCrc = 0;
 bool uploadActive = false;
 uint32_t lastQueueSync = 0;
-String serialLine;
 static constexpr size_t MAX_LINE = 4095;
+char serialLine[MAX_LINE + 1];
+size_t serialLineLength = 0;
+bool serialLineOverflow = false;
 static constexpr size_t CHUNK = 480;
 
+int base64Value(unsigned char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+' || c == '-') return 62;
+  if (c == '/' || c == '_') return 63;
+  return -1;
+}
+
+bool decodeBase64(const char *src, size_t srcLen, uint8_t *dst,
+                  size_t dstCap, size_t &dstLen, size_t &errorIndex,
+                  uint8_t &errorByte) {
+  dstLen = 0;
+  errorIndex = 0;
+  errorByte = 0;
+  auto failAt = [&](size_t at) {
+    errorIndex = at;
+    errorByte = src && at < srcLen ? (uint8_t)src[at] : 0;
+    return false;
+  };
+  if (!src || srcLen == 0) return failAt(0);
+  if ((srcLen % 4) != 0) return failAt(srcLen - (srcLen % 4));
+
+  for (size_t i = 0; i < srcLen; i += 4) {
+    const bool last = (i + 4 == srcLen);
+    int a = base64Value((unsigned char)src[i]);
+    int b = base64Value((unsigned char)src[i + 1]);
+    int c = src[i + 2] == '=' ? -2 : base64Value((unsigned char)src[i + 2]);
+    int d = src[i + 3] == '=' ? -2 : base64Value((unsigned char)src[i + 3]);
+    if (a < 0) return failAt(i);
+    if (b < 0) return failAt(i + 1);
+    if (c == -1) return failAt(i + 2);
+    if (d == -1) return failAt(i + 3);
+    if (c == -2 && d != -2) return failAt(i + 3);
+    if ((c == -2 || d == -2) && !last) return failAt(c == -2 ? i + 2 : i + 3);
+    if (c == -2 && (b & 0x0F) != 0) return failAt(i + 1);
+    if (d == -2 && c >= 0 && (c & 0x03) != 0) return failAt(i + 2);
+
+    const size_t bytes = c == -2 ? 1 : (d == -2 ? 2 : 3);
+    if (dstLen + bytes > dstCap) return failAt(i);
+    dst[dstLen++] = (uint8_t)((a << 2) | (b >> 4));
+    if (bytes > 1) dst[dstLen++] = (uint8_t)((b << 4) | (c >> 2));
+    if (bytes > 2) dst[dstLen++] = (uint8_t)((c << 6) | d);
+  }
+  return true;
+}
 uint32_t crcUpdate(uint32_t c,const uint8_t *p,size_t n) {
   while(n--){c^=*p++;for(uint8_t i=0;i<8;i++)c=(c&1)?(0xEDB88320UL^(c>>1)):(c>>1);}return c;
 }
@@ -35,7 +83,7 @@ bool requireSession(uint32_t id,const String&cmd){if(mode==PC_SESSION&&serverIns
 void handle(JsonDocument&q){
   uint32_t id=q["id"]|0;String cmd=q["type"]|"";String path=q["path"]|"";
   if((q["v"]|0)!=1){reply(id,cmd,false,nullptr,"Unsupported protocol version.");return;}
-  if(cmd=="HELLO"){StaticJsonDocument<160>d;d["device"]="ESP32-WROOM";d["build"]="serial-file-manager-v1";d["state"]=mode==READY?"READY":mode==PC_SESSION?"PC_SESSION":"RECOVERY";d["littlefsReady"]=StorageLibrary.isLittleFSReady();reply(id,cmd,true,&d);return;}
+  if(cmd=="HELLO"){StaticJsonDocument<256>d;d["device"]="ESP32-WROOM";if(serverInstance&&serverInstance->deviceName().length())d["name"]=serverInstance->deviceName();d["build"]="serial-file-manager-v1";d["state"]=mode==READY?"READY":mode==PC_SESSION?"PC_SESSION":"RECOVERY";d["littlefsReady"]=StorageLibrary.isLittleFSReady();reply(id,cmd,true,&d);return;}
   if(cmd=="SESSION_BEGIN"){
     if(mode!=READY||!serverInstance){reply(id,cmd,false,nullptr,"Board is not ready; check SD and LittleFS status.");return;}
     if(!serverInstance->begin()){reply(id,cmd,false,nullptr,serverInstance->lastError());return;}
@@ -58,11 +106,36 @@ void handle(JsonDocument&q){
     d["more"]=(bool)f;d["next"]=seen;if(f)f.close();dir.close();reply(id,cmd,true,&d);return;
   }
   if(cmd=="MKDIR"){if(path=="/sd"||sdCard().exists(p)||!makeParents(p.substring(0,p.lastIndexOf('/')))||!sdCard().mkdir(p)){reply(id,cmd,false,nullptr,"Could not create folder.");return;}reply(id,cmd,true);return;}
-  if(cmd=="DELETE"){if(path=="/sd"){reply(id,cmd,false,nullptr,"Cannot delete the SD root.");return;}if(!sdCard().exists(p)){reply(id,cmd,false,nullptr,"Path not found.");return;}File f=sdCard().open(p);bool isDir=f&&f.isDirectory();f.close();bool ok=isDir?sdCard().rmdir(p):sdCard().remove(p);if(!ok){reply(id,cmd,false,nullptr,"Could not delete path (folder may not be empty).");return;}reply(id,cmd,true);return;}
+  if(cmd=="DELETE"){if(path=="/sd"){reply(id,cmd,false,nullptr,"Cannot delete the SD root.");return;}if(!sdCard().exists(p)){reply(id,cmd,false,nullptr,"Path not found.");return;}File f=sdCard().open(p);bool isDir=f&&f.isDirectory();f.close();bool ok=isDir?StorageLibrary.SD.deleteFolder(p):StorageLibrary.SD.deleteFile(p);if(!ok){reply(id,cmd,false,nullptr,StorageLibrary.SD.lastError());return;}reply(id,cmd,true);return;}
+  if(cmd=="RENAME"||cmd=="MOVE"||cmd=="COPY"){
+    String destination=q["destination"]|"";
+    if(!validPath(destination)||destination=="/sd"){
+      reply(id,cmd,false,nullptr,"Invalid or protected destination path.");return;
+    }
+    if(cmd=="RENAME"){
+      int sourceSlash=path.lastIndexOf('/');
+      int destinationSlash=destination.lastIndexOf('/');
+      if(sourceSlash<0||destinationSlash<0||path.substring(0,sourceSlash)!=destination.substring(0,destinationSlash)){
+        reply(id,cmd,false,nullptr,"RENAME must keep the item in its current folder; use MOVE to change folders.");return;
+      }
+    }
+    String destinationCardPath=cardPath(destination);
+    int slash=destinationCardPath.lastIndexOf('/');
+    if(slash>0&&!makeParents(destinationCardPath.substring(0,slash))){
+      reply(id,cmd,false,nullptr,"Could not create destination folder.");return;
+    }
+    bool ok=cmd=="COPY"
+      ? StorageLibrary.SD.copyPath(p,destinationCardPath)
+      : cmd=="MOVE"
+        ? StorageLibrary.SD.movePath(p,destinationCardPath)
+        : StorageLibrary.SD.renamePath(p,destinationCardPath);
+    if(!ok){reply(id,cmd,false,nullptr,StorageLibrary.SD.lastError());return;}
+    reply(id,cmd,true);return;
+  }
   if(cmd=="GET_BEGIN"){File f=sdCard().open(p,"r");if(!f||f.isDirectory()){reply(id,cmd,false,nullptr,"File not found.");return;}uint64_t size=f.size();uint32_t crc=crcFile(f);f.close();StaticJsonDocument<96>d;d["size"]=size;d["crc32"]=hex32(crc);reply(id,cmd,true,&d);return;}
   if(cmd=="GET_CHUNK"){uint64_t off=q["offset"]|UINT64_MAX;size_t n=q["length"]|0;if(n==0||n>CHUNK||off==UINT64_MAX){reply(id,cmd,false,nullptr,"Invalid chunk request.");return;}File f=sdCard().open(p,"r");if(!f||f.isDirectory()||off>f.size()){reply(id,cmd,false,nullptr,"File or offset is invalid.");return;}f.seek((uint32_t)off);uint8_t b[CHUNK];size_t got=f.read(b,n);f.close();if(got!=n){reply(id,cmd,false,nullptr,"Short read.");return;}StaticJsonDocument<1100>d;char enc[CHUNK*2+8];size_t olen=0;if(mbedtls_base64_encode((unsigned char*)enc,sizeof(enc),&olen,b,got)!=0){reply(id,cmd,false,nullptr,"Base64 encoding failed.");return;}enc[olen]=0;d["offset"]=off;d["data"]=enc;d["crc32"]=hex32(crcUpdate(0xFFFFFFFFUL,b,got)^0xFFFFFFFFUL);reply(id,cmd,true,&d);return;}
   if(cmd=="PUT_BEGIN"){if(uploadActive){reply(id,cmd,false,nullptr,"Another upload is active.");return;}uint64_t size=q["size"]|UINT64_MAX;uint32_t crc;if(size==UINT64_MAX||size>1024ULL*1024*1024||!parseCrc(q["crc32"],crc)){reply(id,cmd,false,nullptr,"Invalid size or CRC.");return;}makeParents(p.substring(0,p.lastIndexOf('/')));if(!sdCard().exists("/.pc-tmp"))sdCard().mkdir("/.pc-tmp");sdCard().remove("/.pc-tmp/upload.bin");uploadPath=path;uploadSize=size;uploadExpectedCrc=crc;uploadReceived=0;uploadFile=sdCard().open("/.pc-tmp/upload.bin",FILE_WRITE);if(!uploadFile){reply(id,cmd,false,nullptr,"Could not create staging file.");return;}uploadActive=true;reply(id,cmd,true);return;}
-  if(cmd=="PUT_CHUNK"){if(!uploadActive||path!=uploadPath){reply(id,cmd,false,nullptr,"No matching upload.");return;}uint64_t off=q["offset"]|UINT64_MAX;const char*encoded=q["data"]|"";uint32_t expected;if(off!=uploadReceived||!parseCrc(q["crc32"],expected)){reply(id,cmd,false,nullptr,"Unexpected offset or invalid CRC.");return;}size_t cap=strlen(encoded)*3/4+4;std::unique_ptr<uint8_t[]>b(new uint8_t[cap]);size_t n=0;if(mbedtls_base64_decode(b.get(),cap,&n,(const unsigned char*)encoded,strlen(encoded))!=0){reply(id,cmd,false,nullptr,"Invalid base64 payload.");return;}uint32_t actual=crcUpdate(0xFFFFFFFFUL,b.get(),n)^0xFFFFFFFFUL;if(!n||n>CHUNK||actual!=expected||uploadReceived+n>uploadSize){reply(id,cmd,false,nullptr,"Chunk CRC or length is invalid.");return;}if(uploadFile.write(b.get(),n)!=n){reply(id,cmd,false,nullptr,"Staging write failed.");return;}uploadReceived+=n;reply(id,cmd,true);return;}
+  if(cmd=="PUT_CHUNK"){if(!uploadActive||path!=uploadPath){reply(id,cmd,false,nullptr,"No matching upload.");return;}uint64_t off=q["offset"]|UINT64_MAX;const char*encoded=q["data"]|"";uint32_t expected;if(off!=uploadReceived||!parseCrc(q["crc32"],expected)){reply(id,cmd,false,nullptr,"Unexpected offset or invalid CRC.");return;}uint8_t b[CHUNK];size_t n=0,badIndex=0;uint8_t badByte=0;size_t encodedLen=strlen(encoded);if(!decodeBase64(encoded,encodedLen,b,sizeof(b),n,badIndex,badByte)){char message[128];snprintf(message,sizeof(message),"Invalid base64 at offset %lu (length %u, index %u, byte 0x%02X).",(unsigned long)off,(unsigned)encodedLen,(unsigned)badIndex,(unsigned)badByte);reply(id,cmd,false,nullptr,String(message));return;}uint32_t actual=crcUpdate(0xFFFFFFFFUL,b,n)^0xFFFFFFFFUL;if(!n||n>CHUNK||actual!=expected||uploadReceived+n>uploadSize){reply(id,cmd,false,nullptr,"Chunk CRC or length is invalid.");return;}if(uploadFile.write(b,n)!=n){reply(id,cmd,false,nullptr,"Staging write failed.");return;}uploadReceived+=n;reply(id,cmd,true);return;}
   if(cmd=="PUT_COMMIT"){if(!uploadActive||path!=uploadPath){reply(id,cmd,false,nullptr,"No matching upload.");return;}uploadFile.flush();uploadFile.close();uploadActive=false;File f=sdCard().open("/.pc-tmp/upload.bin","r");if(!f||f.size()!=uploadSize||crcFile(f)!=uploadExpectedCrc){if(f)f.close();sdCard().remove("/.pc-tmp/upload.bin");reply(id,cmd,false,nullptr,"Whole-file verification failed.");return;}f.close();String backup="/.pc-tmp/previous.bin";bool had=sdCard().exists(p);if(had){sdCard().remove(backup);if(!sdCard().rename(p,backup)){reply(id,cmd,false,nullptr,"Could not preserve prior destination.");return;}}if(!sdCard().rename("/.pc-tmp/upload.bin",p)){if(had)sdCard().rename(backup,p);reply(id,cmd,false,nullptr,"Could not commit upload.");return;}if(had)sdCard().remove(backup);reply(id,cmd,true);return;}
   if(cmd=="PUT_ABORT"){if(uploadActive){uploadFile.close();uploadActive=false;}sdCard().remove("/.pc-tmp/upload.bin");reply(id,cmd,true);return;}
   reply(id,cmd,false,nullptr,"Unknown command.");
@@ -71,25 +144,40 @@ void handle(JsonDocument&q){
 
 bool ESP32PcSession::beginServer(uint8_t sdCsPin,uint32_t baud,SPIClass *sdSPI){
   serverInstance=this;
-  Serial.begin(baud);delay(300);
+  Serial.setRxBufferSize(2048);Serial.begin(baud);delay(300);
   bool mounted=StorageLibrary.beginStorage(sdCsPin,18,19,23,4000000,false,sdSPI);
   mode=(mounted&&StorageLibrary.isSDReady()&&StorageLibrary.isLittleFSReady()&&StorageLibrary.syncBackup())?READY:RECOVERY;
   StaticJsonDocument<128>g;g["v"]=1;g["type"]="BOOT";g["state"]=mode==READY?"READY":"RECOVERY";serializeJson(g,Serial);Serial.write('\n');
   return mode==READY;
 }
 
+void ESP32PcSession::setDeviceName(const String &name){
+  _deviceName=name;
+  _deviceName.trim();
+  if(_deviceName.length()>64)_deviceName.remove(64);
+}
+
 void ESP32PcSession::poll(){
   while(Serial.available()){
     char c=(char)Serial.read();
     if(c=='\n'){
-      if(serialLine.length()){DynamicJsonDocument q(8192);auto err=deserializeJson(q,serialLine);if(!err)handle(q);else{StaticJsonDocument<96>d;d["v"]=1;d["id"]=0;d["type"]="PROTOCOL_ERR";d["message"]="Malformed JSON";serializeJson(d,Serial);Serial.write('\n');}}
-      serialLine="";
-    }else if(serialLine.length()<MAX_LINE)serialLine+=c;else serialLine="";
+      if(serialLineOverflow){
+        StaticJsonDocument<96>d;d["v"]=1;d["id"]=0;d["type"]="PROTOCOL_ERR";d["message"]="Serial request line too long";serializeJson(d,Serial);Serial.write('\n');
+      }else if(serialLineLength){
+        serialLine[serialLineLength]='\0';
+        DynamicJsonDocument q(8192);auto err=deserializeJson(q,serialLine);
+        if(!err)handle(q);else{StaticJsonDocument<96>d;d["v"]=1;d["id"]=0;d["type"]="PROTOCOL_ERR";d["message"]="Malformed JSON";serializeJson(d,Serial);Serial.write('\n');}
+      }
+      serialLineLength=0;
+      serialLineOverflow=false;
+    }else if(!serialLineOverflow){
+      if(serialLineLength<MAX_LINE)serialLine[serialLineLength++]=c;
+      else serialLineOverflow=true;
+    }
   }
   if(mode==READY&&!_active&&millis()-lastQueueSync>30000){sync();lastQueueSync=millis();}
   delay(1);
 }
-
 bool ESP32PcSession::begin(){
   if(_active)return true;
   if(!StorageLibrary.isLittleFSReady()){_lastError="LittleFS is not ready; safe PC sessions require the fallback queue.";return false;}

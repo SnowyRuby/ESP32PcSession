@@ -4,7 +4,7 @@ An Arduino library that runs the ESP32 side of the serial SD-card file manager. 
 
 ## Dependency
 
-Install the separate [**ESP32StorageLibrary**](https://github.com/SnowyRuby/ESP32StorageLibrary) first. ESP32PcSession calls its `StorageLibrary.beginStorage()`, `beginHostSession()`, `writeWithFallback()`, and `endHostSession()` APIs. It also requires ArduinoJson 7 and the ESP32 Arduino core 3.x.
+Install [**ESP32StorageLibrary 0.4.1 or newer**](https://github.com/SnowyRuby/ESP32StorageLibrary) first. ESP32PcSession uses its `copyPath()`, `renamePath()`, and `movePath()` helpers along with `StorageLibrary.beginStorage()`, `beginHostSession()`, `writeWithFallback()`, and `endHostSession()`. It also requires ArduinoJson 7 and the ESP32 Arduino core 3.x.
 
 ## Example
 
@@ -27,7 +27,9 @@ void loop() {
 
 Existing `beginServer(csPin, baud)` calls remain source-compatible. To share an SPI bus already initialized by a TFT, pass its `SPIClass` pointer as the third argument, for example `server.beginServer(5, 115200, Screen.getSPIinstance())`. This forwards the bus to `StorageLibrary.beginStorage(...)`; leave it omitted or pass `nullptr` to use the default pin-based SPI initialization.
 
-The library handles the serial protocol, browsing, uploads, downloads, transfer CRC checks, and session begin/end. SD remains mounted so the firmware can perform the PC's file requests. While the PC owns the transfer session, send new ESP32 records through `StorageLibrary.writeWithFallback(record)` or `server.writeRecord(record)`; the StorageLibrary host-session gate queues them in LittleFS until the session ends. Avoid direct application writes to SD during a PC session.
+To show a friendly device name in the PC app's port list, call `server.setDeviceName("Workshop ESP32")` before `beginServer()`. If you leave it unset, the app shows the COM port name.
+
+The library handles the serial protocol, browsing, uploads, downloads, transfer CRC checks, and session begin/end. `RENAME` changes an item's name in the same folder through `StorageLibrary.SD.renamePath()`; `MOVE` changes its folder while keeping its name through `StorageLibrary.SD.movePath()`. `COPY` uses `StorageLibrary.SD.copyPath()` to copy files or folder trees on the card. These operations do not transfer file data through the PC. The protocol also includes `MKDIR`, `DELETE`, `GET_*`, and `PUT_*` requests. SD remains mounted so the firmware can perform the PC's file requests. While the PC owns the transfer session, send new ESP32 records through `StorageLibrary.writeWithFallback(record)` or `server.writeRecord(record)`; the StorageLibrary host-session gate queues them in LittleFS until the session ends. Avoid direct application writes to SD during a PC session.
 
 ## Sensor-save pause and resume
 

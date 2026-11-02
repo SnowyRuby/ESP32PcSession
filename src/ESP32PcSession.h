@@ -15,6 +15,10 @@ public:
   // The sketch's setup() can call beginServer(); loop() should call poll().
   bool beginServer(uint8_t sdCsPin = 5, uint32_t baud = 115200,
                    SPIClass *sdSPI = nullptr);
+  // Optional friendly name shown by the PC app instead of just the COM port.
+  // Leave unset to have the PC app show the COM port name (for example, COM3).
+  void setDeviceName(const String &name);
+  const String &deviceName() const { return _deviceName; }
   void poll();
 
   // Ask the PC app to end its SD file session while keeping the COM port open.
@@ -46,5 +50,6 @@ private:
   bool _active = false;
   bool _needsRecovery = false;
   bool _sensorDataNotificationPending = false;
+  String _deviceName;
   String _lastError;
 };
