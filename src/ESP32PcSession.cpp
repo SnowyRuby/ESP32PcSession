@@ -196,9 +196,7 @@ void ESP32PcSession::poll(){
 bool ESP32PcSession::begin(){
   if(_active)return true;
   if(!StorageLibrary.isLittleFSReady()){_lastError="LittleFS is not ready; safe PC sessions require the fallback queue.";return false;}
-  if(StorageLibrary.isSDReady()&&!StorageLibrary.beginHostSession()){
-    if(StorageLibrary.isSDReady()||!StorageLibrary.isLittleFSReady()){_lastError=StorageLibrary.lastError();if(!_lastError.length())_lastError="StorageLibrary could not start a host session.";return false;}
-  }
+  if(!StorageLibrary.beginHostSession()){_lastError=StorageLibrary.lastError();if(!_lastError.length())_lastError="StorageLibrary could not start a host session.";return false;}
   _active=true;_needsRecovery=false;_lastError="";return true;
 }
 
