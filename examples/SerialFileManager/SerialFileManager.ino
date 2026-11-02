@@ -1,6 +1,6 @@
 // Example: run the ESP32 serial file server with the ESP32PcSession library.
 //
-// The library handles the serial protocol, SD browsing/transfers, and the
+// The library handles the serial protocol, SD and LittleFS browsing/transfers, and the
 // LittleFS queue session. This sketch only starts it and keeps it polling.
 // Connect the PC over the board's USB-to-UART COM port at 115200 baud.
 
@@ -15,11 +15,11 @@ void setup() {
   // server.setDeviceName("Workshop ESP32");
 
   // Use SD CS GPIO 5. The library initializes the ESP32StorageLibrary backends
-  // and reports READY only when SD and LittleFS are available.
+  // and reports READY when LittleFS is available (SD is optional).
   // Keep the existing two-argument call, or pass a shared bus as argument 3:
   // server.beginServer(5, 115200, Screen.getSPIinstance());
   if (!server.beginServer(5, 115200)) {
-    Serial.println("File server is in recovery mode; check the SD card and LittleFS.");
+    Serial.println("File server is in recovery mode; check LittleFS.");
   }
 }
 

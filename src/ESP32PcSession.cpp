@@ -1,4 +1,5 @@
 #include <ESP32PcSession.h>
+#include <LittleFS.h>
 
 namespace {
 enum Mode { RECOVERY, READY, PC_SESSION };
@@ -6,6 +7,8 @@ Mode mode = RECOVERY;
 ESP32PcSession *serverInstance = nullptr;
 File uploadFile;
 String uploadPath;
+String uploadStagePath;
+fs::FS *uploadFilesystem = nullptr;
 uint64_t uploadSize = 0, uploadReceived = 0;
 uint32_t uploadExpectedCrc = 0;
 bool uploadActive = false;
@@ -68,10 +71,19 @@ uint32_t crcUpdate(uint32_t c,const uint8_t *p,size_t n) {
 uint32_t crcFile(File &f){uint32_t c=0xFFFFFFFFUL;uint8_t b[512];while(f.available()){size_t n=f.read(b,sizeof(b));c=crcUpdate(c,b,n);}return c^0xFFFFFFFFUL;}
 String hex32(uint32_t n){char b[9];snprintf(b,sizeof(b),"%08lx",(unsigned long)n);return String(b);}
 bool parseCrc(JsonVariantConst v,uint32_t &out){if(!v.is<const char*>())return false;const char*s=v.as<const char*>();char*end=nullptr;unsigned long n=strtoul(s,&end,16);if(end==s||*end||strlen(s)!=8)return false;out=(uint32_t)n;return true;}
-bool validPath(const String&p){if(p.length()<3||p.length()>240||!(p=="/sd"||p.startsWith("/sd/"))||p.indexOf("..")>=0||p.indexOf('\\')>=0)return false;for(size_t i=0;i<p.length();i++)if((uint8_t)p[i]<32)return false;return p!="/sd/.pc-tmp"&&!p.startsWith("/sd/.pc-tmp/");}
-String cardPath(const String&p){String out=p.substring(3);return out.length()?out:"/";}
+bool isVolumeRoot(const String &path){return path=="/sd"||path=="/littlefs";}
+String volumeForPath(const String &path){if(path=="/sd"||path.startsWith("/sd/"))return "/sd";if(path=="/littlefs"||path.startsWith("/littlefs/"))return "/littlefs";return "";}
+String filesystemPath(const String &path){String volume=volumeForPath(path);if(!volume.length())return "/";String out=path.substring(volume.length());return out.length()?out:"/";}
+bool matchesProtectedPath(const String &path,const char *reserved){String root=reserved;if(path.equalsIgnoreCase(root))return true;return path.length()>root.length()&&path.substring(0,root.length()).equalsIgnoreCase(root)&&path[root.length()]=='/';}
+bool validPath(const String&p){if(p=="/")return true;if(p.length()<3||p.length()>240||!volumeForPath(p).length()||p.indexOf("..")>=0||p.indexOf('\\')>=0)return false;for(size_t i=0;i<p.length();i++)if((uint8_t)p[i]<32)return false;String local=filesystemPath(p);if(matchesProtectedPath(local,"/.pc-tmp"))return false;if(volumeForPath(p)=="/sd"&&matchesProtectedPath(local,"/StorageLibraryBackup"))return false;if(volumeForPath(p)=="/littlefs"&&matchesProtectedPath(local,"/StorageLibraryQueue"))return false;return true;}
+fs::FS &filesystemFor(const String &path){return volumeForPath(path)=="/littlefs"?StorageLibrary.LittleFS.filesystem():StorageLibrary.SD.filesystem();}
+ESP32StorageLibrary &storageFor(const String &path){return volumeForPath(path)=="/littlefs"?StorageLibrary.LittleFS:StorageLibrary.SD;}
+bool makeParents(fs::FS &fs,const String&p){int at=1;while((at=p.indexOf('/',at))>0){String d=p.substring(0,at);if(d!="/"&&!fs.exists(d))fs.mkdir(d);at++;}return true;}
+bool removeTree(fs::FS &fs,const String &path){File node=fs.open(path,FILE_READ);if(!node)return false;bool directory=node.isDirectory();if(directory){while(true){File child=node.openNextFile();if(!child)break;String childName=String(child.name());int slash=childName.lastIndexOf('/');if(slash>=0)childName=childName.substring(slash+1);child.close();if(childName.length()&&!removeTree(fs,path=="/"?"/"+childName:path+"/"+childName)){node.close();return false;}}}node.close();return directory?fs.rmdir(path):fs.remove(path);}
+bool copyTree(fs::FS &sourceFs,const String &source,fs::FS &destinationFs,const String &destination){File input=sourceFs.open(source,FILE_READ);if(!input||destinationFs.exists(destination)){if(input)input.close();return false;}if(input.isDirectory()){input.close();if(!destinationFs.mkdir(destination))return false;File directory=sourceFs.open(source,FILE_READ);while(true){File child=directory.openNextFile();if(!child)break;String childName=String(child.name());int slash=childName.lastIndexOf('/');if(slash>=0)childName=childName.substring(slash+1);bool isDirectory=child.isDirectory();child.close();String sourceChild=source=="/"?"/"+childName:source+"/"+childName;String destinationChild=destination=="/"?"/"+childName:destination+"/"+childName;if(!copyTree(sourceFs,sourceChild,destinationFs,destinationChild)){directory.close();removeTree(destinationFs,destination);return false;}}directory.close();return true;}File output=destinationFs.open(destination,FILE_WRITE);if(!output){input.close();return false;}uint8_t buffer[512];bool ok=true;while(input.available()){int count=input.read(buffer,sizeof(buffer));if(count<=0||output.write(buffer,(size_t)count)!=(size_t)count){ok=false;break;}}input.close();output.flush();output.close();if(!ok){destinationFs.remove(destination);return false;}File copied=destinationFs.open(destination,FILE_READ);File original=sourceFs.open(source,FILE_READ);bool same=copied&&original&&copied.size()==original.size()&&crcFile(copied)==crcFile(original);if(copied)copied.close();if(original)original.close();if(!same)destinationFs.remove(destination);return same;}
+String cardPath(const String &path){return filesystemPath(path);}
 fs::FS &sdCard(){return StorageLibrary.SD.filesystem();}
-bool makeParents(const String&p){int at=1;while((at=p.indexOf('/',at))>0){String d=p.substring(0,at);if(d!="/"&&!sdCard().exists(d))sdCard().mkdir(d);at++;}return true;}
+bool makeParents(const String &path){return makeParents(sdCard(),path);}
 
 void sendResponse(uint32_t id,const String&type,JsonDocument&d){d["v"]=1;d["id"]=id;d["type"]=type;serializeJson(d,Serial);Serial.write('\n');}
 void sendNotification(const char *type){StaticJsonDocument<96>d;d["v"]=1;d["type"]=type;serializeJson(d,Serial);Serial.write('\n');}
@@ -79,6 +91,8 @@ void reply(uint32_t id,const String&request,bool ok,JsonDocument*body=nullptr,co
   StaticJsonDocument<128> local;JsonDocument&d=body?*body:static_cast<JsonDocument&>(local);String type=request+(ok?"_OK":"_ERR");if(!ok)d["message"]=message;sendResponse(id,type,d);
 }
 bool requireSession(uint32_t id,const String&cmd){if(mode==PC_SESSION&&serverInstance&&serverInstance->isActive())return true;reply(id,cmd,false,nullptr,"Begin a PC session first.");return false;}
+
+#include "ESP32PcSessionVolumeHandler.inc"
 
 void handle(JsonDocument&q){
   uint32_t id=q["id"]|0;String cmd=q["type"]|"";String path=q["path"]|"";
@@ -146,7 +160,8 @@ bool ESP32PcSession::beginServer(uint8_t sdCsPin,uint32_t baud,SPIClass *sdSPI){
   serverInstance=this;
   Serial.setRxBufferSize(2048);Serial.begin(baud);delay(300);
   bool mounted=StorageLibrary.beginStorage(sdCsPin,18,19,23,4000000,false,sdSPI);
-  mode=(mounted&&StorageLibrary.isSDReady()&&StorageLibrary.isLittleFSReady()&&StorageLibrary.syncBackup())?READY:RECOVERY;
+  bool queueReady = !StorageLibrary.isSDReady() || StorageLibrary.syncBackup();
+  mode=(mounted&&StorageLibrary.isLittleFSReady()&&queueReady)?READY:RECOVERY;
   StaticJsonDocument<128>g;g["v"]=1;g["type"]="BOOT";g["state"]=mode==READY?"READY":"RECOVERY";serializeJson(g,Serial);Serial.write('\n');
   return mode==READY;
 }
@@ -166,7 +181,7 @@ void ESP32PcSession::poll(){
       }else if(serialLineLength){
         serialLine[serialLineLength]='\0';
         DynamicJsonDocument q(8192);auto err=deserializeJson(q,serialLine);
-        if(!err)handle(q);else{StaticJsonDocument<96>d;d["v"]=1;d["id"]=0;d["type"]="PROTOCOL_ERR";d["message"]="Malformed JSON";serializeJson(d,Serial);Serial.write('\n');}
+        if(!err)handleVolumes(q);else{StaticJsonDocument<96>d;d["v"]=1;d["id"]=0;d["type"]="PROTOCOL_ERR";d["message"]="Malformed JSON";serializeJson(d,Serial);Serial.write('\n');}
       }
       serialLineLength=0;
       serialLineOverflow=false;
@@ -181,19 +196,34 @@ void ESP32PcSession::poll(){
 bool ESP32PcSession::begin(){
   if(_active)return true;
   if(!StorageLibrary.isLittleFSReady()){_lastError="LittleFS is not ready; safe PC sessions require the fallback queue.";return false;}
-  if(!StorageLibrary.beginHostSession()){_lastError=StorageLibrary.lastError();if(!_lastError.length())_lastError="StorageLibrary could not start a host session.";return false;}
+  if(StorageLibrary.isSDReady()&&!StorageLibrary.beginHostSession()){
+    if(StorageLibrary.isSDReady()||!StorageLibrary.isLittleFSReady()){_lastError=StorageLibrary.lastError();if(!_lastError.length())_lastError="StorageLibrary could not start a host session.";return false;}
+  }
   _active=true;_needsRecovery=false;_lastError="";return true;
 }
 
 bool ESP32PcSession::end(){
-  if(_active){_active=false;if(StorageLibrary.endHostSession()){_needsRecovery=false;_lastError="";return true;}_needsRecovery=true;_lastError=StorageLibrary.lastError();if(!_lastError.length())_lastError="SD or queued-record sync failed.";return false;}
-  if(!_needsRecovery)return StorageLibrary.syncBackup();
+  if(_active){
+    _active=false;
+    if(StorageLibrary.isHostSessionActive()){
+      if(StorageLibrary.endHostSession()){_needsRecovery=false;_lastError="";return true;}
+      if(!StorageLibrary.isSDReady()&&StorageLibrary.isLittleFSReady()){_needsRecovery=false;_lastError="";return true;}
+      _needsRecovery=true;_lastError=StorageLibrary.lastError();if(!_lastError.length())_lastError="SD or queued-record sync failed.";return false;
+    }
+    _needsRecovery=false;_lastError="";
+    return StorageLibrary.isLittleFSReady();
+  }
+  if(!_needsRecovery){
+    if(!StorageLibrary.isSDReady()&&StorageLibrary.isLittleFSReady()){_lastError="";return true;}
+    return StorageLibrary.syncBackup();
+  }
   if(StorageLibrary.syncBackup()){_needsRecovery=false;_lastError="";return true;}
+  if(!StorageLibrary.isSDReady()&&StorageLibrary.isLittleFSReady()){_needsRecovery=false;_lastError="";return true;}
   _lastError=StorageLibrary.lastError();if(!_lastError.length())_lastError="Queued-record sync is still pending.";return false;
 }
 
 bool ESP32PcSession::writeRecord(const String&record){if(!StorageLibrary.writeWithFallback(record)){_lastError=StorageLibrary.lastError();return false;}_lastError="";return true;}
-bool ESP32PcSession::sync(){if(_active){_lastError="Cannot sync while the PC owns the SD card.";return false;}bool ok=StorageLibrary.syncBackup();_needsRecovery=!ok;_lastError=ok?"":StorageLibrary.lastError();return ok;}
+bool ESP32PcSession::sync(){if(_active){_lastError="Cannot sync while the PC owns the storage.";return false;}if(!StorageLibrary.isSDReady()){StorageLibrary.syncBackup();_lastError="SD card unavailable; queued sensor records remain safely in LittleFS.";_needsRecovery=false;return true;}bool ok=StorageLibrary.syncBackup();_needsRecovery=!ok;_lastError=ok?"":StorageLibrary.lastError();return ok;}
 
 void ESP32PcSession::notifySensorDataPending(){if(serverInstance!=this||!_active||_sensorDataNotificationPending)return;sendNotification("SENSOR_DATA_PENDING");_sensorDataNotificationPending=true;}
 void ESP32PcSession::notifySensorDataSaved(){if(serverInstance!=this||!_sensorDataNotificationPending)return;sendNotification("SENSOR_DATA_SAVED");_sensorDataNotificationPending=false;}

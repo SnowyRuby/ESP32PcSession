@@ -7,7 +7,7 @@
 #include <mbedtls/base64.h>
 #include <ESP32StorageLibrary.h>
 
-// Runs the USB-to-UART file protocol and coordinates PC access to SD.
+// Runs the USB-to-UART file protocol and coordinates PC access to SD and LittleFS.
 // The application sketch calls the sensor notification methods when needed.
 class ESP32PcSession {
 public:
@@ -21,7 +21,7 @@ public:
   const String &deviceName() const { return _deviceName; }
   void poll();
 
-  // Ask the PC app to end its SD file session while keeping the COM port open.
+  // Ask the PC app to end its file session while keeping the COM port open.
   // Call notifySensorDataSaved() after the queued sensor records reach storage.
   void notifySensorDataPending();
   void notifySensorDataSaved();

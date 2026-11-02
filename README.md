@@ -1,6 +1,6 @@
 # ESP32PcSession
 
-An Arduino library that runs the ESP32 side of the serial SD-card file manager. It serves folder listings and file transfers over the board's USB-to-UART COM port. The PC uses its companion Windows app; no Wi-Fi or USB mass-storage mode is involved.
+An Arduino library that runs the ESP32 side of the serial file manager. It serves SD and LittleFS folder listings and file transfers over the board's USB-to-UART COM port. The PC uses its companion Windows app; no Wi-Fi or USB mass-storage mode is involved.
 
 ## Dependency
 
@@ -29,7 +29,9 @@ Existing `beginServer(csPin, baud)` calls remain source-compatible. To share an 
 
 To show a friendly device name in the PC app's port list, call `server.setDeviceName("Workshop ESP32")` before `beginServer()`. If you leave it unset, the app shows the COM port name.
 
-The library handles the serial protocol, browsing, uploads, downloads, transfer CRC checks, and session begin/end. `RENAME` changes an item's name in the same folder through `StorageLibrary.SD.renamePath()`; `MOVE` changes its folder while keeping its name through `StorageLibrary.SD.movePath()`. `COPY` uses `StorageLibrary.SD.copyPath()` to copy files or folder trees on the card. These operations do not transfer file data through the PC. The protocol also includes `MKDIR`, `DELETE`, `GET_*`, and `PUT_*` requests. SD remains mounted so the firmware can perform the PC's file requests. While the PC owns the transfer session, send new ESP32 records through `StorageLibrary.writeWithFallback(record)` or `server.writeRecord(record)`; the StorageLibrary host-session gate queues them in LittleFS until the session ends. Avoid direct application writes to SD during a PC session.
+The app starts at a virtual **This PC** view. The server lists every mounted volume with used and total capacity, then supports browsing and file operations under `/sd` and `/littlefs`. Same-volume copy, move, and rename use StorageLibrary helpers; cross-volume copy and move transfer files between filesystems. LittleFS-only boards can still be browsed. The reserved `/StorageLibraryQueue` (LittleFS) and `/StorageLibraryBackup` (SD) folders are hidden and protected, and `.pc-tmp` is reserved for verified upload staging.
+
+While the PC owns the transfer session, send new ESP32 records through `StorageLibrary.writeWithFallback(record)` or `server.writeRecord(record)`. The StorageLibrary host-session gate queues them in its protected LittleFS queue until the session ends; when SD is unavailable, queued records remain there for later replay. Avoid direct application writes to SD or to the protected LittleFS queue during a PC session.
 
 ## Sensor-save pause and resume
 
