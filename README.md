@@ -4,7 +4,7 @@ An Arduino library that runs the ESP32 side of the serial file manager. It serve
 
 ## Dependency
 
-Install [**ESP32StorageLibrary 0.5.0 or newer**](https://github.com/SnowyRuby/ESP32StorageLibrary) first. ESP32PcSession uses its `copyPath()`, `renamePath()`, and `movePath()` helpers along with `StorageLibrary.beginStorage()`, `beginHostSession()`, `writeWithFallback()`, and `endHostSession()`. It also requires ArduinoJson 7 and the ESP32 Arduino core 3.x.
+Install [**ESP32StorageLibrary 0.6.0 or newer**](https://github.com/SnowyRuby/ESP32StorageLibrary) first. ESP32PcSession uses its `copyPath()`, `renamePath()`, and `movePath()` helpers along with `StorageLibrary.beginStorage()`, `beginHostSession()`, `writeWithFallback()`, and `endHostSession()`. It also requires ArduinoJson 7 and the ESP32 Arduino core 3.x.
 
 ## Example
 
