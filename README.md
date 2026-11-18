@@ -1,5 +1,7 @@
 # ESP32PcSession
 
+> **AI disclosure:** This project was made with AI assistance (ChatGPT/Codex).
+
 An Arduino library that runs the ESP32 side of the serial file manager. It serves SD and LittleFS folder listings and file transfers over the board's USB-to-UART COM port. The PC uses its companion Windows app; no Wi-Fi or USB mass-storage mode is involved.
 
 ## Dependency
