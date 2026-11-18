@@ -20,6 +20,8 @@ public:
   void setDeviceName(const String &name);
   const String &deviceName() const { return _deviceName; }
   void poll();
+  // True only during active file chunks/uploads or a resumable transfer hold.
+  bool isTransferActive() const;
 
   // Ask the PC app to end its file session while keeping the COM port open.
   // Call notifySensorDataSaved() after the queued sensor records reach storage.
@@ -34,6 +36,9 @@ public:
   // Call only after the PC has finished and closed all file handles. Clears the
   // host gate and syncs queued records. If that fails, call end() again to retry.
   bool end();
+
+  // Pauses the serial server while preserving a pending transfer's queue hold.
+  bool suspendForResume();
 
   // Route one complete ESP32 record through the existing fallback manager.
   // During a host session this is queued in LittleFS by StorageLibrary.
@@ -50,6 +55,8 @@ private:
   bool _active = false;
   bool _needsRecovery = false;
   bool _sensorDataNotificationPending = false;
+  bool _sensorDataPendingDeferred = false;
+  bool _sensorDataSavedDeferred = false;
   String _deviceName;
   String _lastError;
 };

@@ -4,7 +4,7 @@ An Arduino library that runs the ESP32 side of the serial file manager. It serve
 
 ## Dependency
 
-Install [**ESP32StorageLibrary 0.6.0 or newer**](https://github.com/SnowyRuby/ESP32StorageLibrary) first. ESP32PcSession uses its `copyPath()`, `renamePath()`, and `movePath()` helpers along with `StorageLibrary.beginStorage()`, `beginHostSession()`, `writeWithFallback()`, and `endHostSession()`. It also requires ArduinoJson 7 and the ESP32 Arduino core 3.x.
+Install [**ESP32StorageLibrary 0.7.0 or newer**](https://github.com/SnowyRuby/ESP32StorageLibrary) first. ESP32PcSession uses its `copyPath()`, `renamePath()`, and `movePath()` helpers along with `StorageLibrary.beginStorage()`, `beginHostSession()`, `writeWithFallback()`, and `endHostSession()`. It also requires ArduinoJson 7 and the ESP32 Arduino core 3.x.
 
 ## Example
 
@@ -32,6 +32,8 @@ To show a friendly device name in the PC app's port list, call `server.setDevice
 The app starts at a virtual **This PC** view. The server lists every mounted volume with used and total capacity, then supports browsing and file operations under `/sd` and `/littlefs`. Same-volume copy, move, and rename use StorageLibrary helpers; cross-volume copy and move transfer files between filesystems. LittleFS-only boards can still be browsed. The reserved `/StorageLibraryQueue` (LittleFS) and `/StorageLibraryBackup` (SD) folders are hidden and protected, and `.pc-tmp` is reserved for verified upload staging.
 
 While the PC owns the transfer session, send new ESP32 records through `StorageLibrary.writeWithFallback(record)` or `server.writeRecord(record)`. The StorageLibrary host-session gate queues them in its protected LittleFS queue until the session ends; when SD is unavailable, queued records remain there for later replay. Avoid direct application writes to SD or to the protected LittleFS queue during a PC session.
+
+Transfers use staged files, CRC checks, and resumable upload metadata so interrupted transfers can continue safely. The library also supports ZIP batch downloads and extraction, streamed download preparation, and modified-time updates. A persistent `/.pc-tmp/transfer-hold` marker coordinates active transfers with StorageLibrary's queue replay gate.
 
 ## Sensor-save pause and resume
 
