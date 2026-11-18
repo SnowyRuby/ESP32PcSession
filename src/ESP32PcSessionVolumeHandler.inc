@@ -92,6 +92,8 @@ void handleVolumes(JsonDocument &q) {
     if (serverInstance && serverInstance->deviceName().length())
       d["name"] = serverInstance->deviceName();
     d["build"] = "serial-file-manager-v2";
+    d["pcSessionVersion"] = ESP32PcSession::version();
+    d["storageLibraryVersion"] = StorageLibrary.version();
     d["state"] = mode == READY ? "READY" : mode == PC_SESSION ? "PC_SESSION" : "RECOVERY";
     d["sdReady"] = StorageLibrary.isSDReady();
     d["littlefsReady"] = StorageLibrary.isLittleFSReady();

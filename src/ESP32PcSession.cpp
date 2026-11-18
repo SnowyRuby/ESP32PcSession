@@ -505,7 +505,7 @@ void handleFastEncodedFrame(const uint8_t *encoded, size_t encodedLength) {
 void handle(JsonDocument&q){
   uint32_t id=q["id"]|0;String cmd=q["type"]|"";String path=q["path"]|"";
   if((q["v"]|0)!=1){reply(id,cmd,false,nullptr,"Unsupported protocol version.");return;}
-  if(cmd=="HELLO"){StaticJsonDocument<384>d;d["device"]="ESP32-WROOM";if(serverInstance&&serverInstance->deviceName().length())d["name"]=serverInstance->deviceName();d["build"]="serial-file-manager-v2";d["state"]=mode==READY?"READY":mode==PC_SESSION?"PC_SESSION":"RECOVERY";d["littlefsReady"]=StorageLibrary.isLittleFSReady();d["baud"]=pendingSerialBaud?pendingSerialBaud:activeSerialBaud;d["baudPending"]=pendingSerialBaud!=0;JsonArray rates=d["baudRates"].to<JsonArray>();for(uint32_t supported:SUPPORTED_BAUD_RATES)rates.add(supported);reply(id,cmd,true,&d);return;}
+  if(cmd=="HELLO"){StaticJsonDocument<512>d;d["device"]="ESP32-WROOM";if(serverInstance&&serverInstance->deviceName().length())d["name"]=serverInstance->deviceName();d["build"]="serial-file-manager-v2";d["pcSessionVersion"]=ESP32PcSession::version();d["storageLibraryVersion"]=StorageLibrary.version();d["state"]=mode==READY?"READY":mode==PC_SESSION?"PC_SESSION":"RECOVERY";d["littlefsReady"]=StorageLibrary.isLittleFSReady();d["baud"]=pendingSerialBaud?pendingSerialBaud:activeSerialBaud;d["baudPending"]=pendingSerialBaud!=0;JsonArray rates=d["baudRates"].to<JsonArray>();for(uint32_t supported:SUPPORTED_BAUD_RATES)rates.add(supported);reply(id,cmd,true,&d);return;}
   if(cmd=="SET_BAUD"){
     uint32_t baud=q["baud"]|0;
     if(!isSupportedBaud(baud)){reply(id,cmd,false,nullptr,"Unsupported serial baud rate.");return;}
