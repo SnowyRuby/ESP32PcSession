@@ -7,9 +7,9 @@
 #include <mbedtls/base64.h>
 #include <ESP32StorageLibrary.h>
 
-#define ESP32_PC_SESSION_VERSION "0.7.0"
-#define ESP32_PC_SESSION_VERSION_MAJOR 0
-#define ESP32_PC_SESSION_VERSION_MINOR 7
+#define ESP32_PC_SESSION_VERSION "1.0.0"
+#define ESP32_PC_SESSION_VERSION_MAJOR 1
+#define ESP32_PC_SESSION_VERSION_MINOR 0
 #define ESP32_PC_SESSION_VERSION_PATCH 0
 
 // Runs the USB-to-UART file protocol and coordinates PC access to SD and LittleFS.
