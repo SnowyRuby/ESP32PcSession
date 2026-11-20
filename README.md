@@ -51,4 +51,4 @@ This project has only been tested on the **ESP32 Dev Module**. Other boards have
 
 ## Companion PC app
 
-Use the Windows app in the separate **ESP32 Serial File Manager** project. Select the board's COM port, connect, and browse or transfer files. Close Arduino Serial Monitor before connecting the app.
+Use the Windows app in the separate **ESP32 Serial File Manager** project. [Download ESP32 Serial File Manager for Windows from boardfiles.co.uk](https://boardfiles.co.uk). Select the board's COM port, connect, and browse or transfer files. Close Arduino Serial Monitor before connecting the app.
